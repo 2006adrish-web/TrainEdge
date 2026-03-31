@@ -14,6 +14,11 @@ def pricing():
     return render_template("pricing.html")
 
 
+@app.route("/about")
+def about():
+    return render_template("about.html")
+
+
 @app.route("/attendance", methods=["POST"])
 def attendance():
     name = request.json["name"]
