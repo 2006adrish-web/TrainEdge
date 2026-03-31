@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TrainEdge | Training Operations</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="page-shell">
+        <div class="bg-orb bg-orb-left"></div>
+        <div class="bg-orb bg-orb-right"></div>
+
+        <main class="dashboard">
+            <header class="topbar">
+                <div class="brand-lockup">
+                    <p class="eyebrow">Training Operations Dashboard</p>
+                    <h1>TrainEdge</h1>
+                </div>
+                <nav class="nav-links">
+                    <a href="/" class="nav-link active">Dashboard</a>
+                    <a href="/pricing" class="nav-link">Pricing</a>
+                </nav>
+            </header>
+
+            <section class="hero">
+                <div class="hero-copy">
+                    <p class="eyebrow">Session Control</p>
+                    <h2 class="hero-title">A calmer way to run attendance, queue order, and drill timing.</h2>
+                    <p class="hero-text">
+                        Monday and Wednesday late arrivals are tracked after 3:00 PM. Saturday and Sunday late arrivals are tracked after 8:00 AM.
+                    </p>
+                </div>
+
+                <div class="hero-panel">
+                    <p class="hero-panel-label">Today's Rules</p>
+                    <h2>Late tracking built in</h2>
+                    <p>
+                        Every check-in is saved with the day, time, and whether the player arrived late.
+                    </p>
+                </div>
+            </section>
+
+            <section class="cards-grid cards-grid-main">
+                <article class="card">
+                    <div class="card-head">
+                        <p class="card-kicker">Attendance</p>
+                        <h2>Mark player check-in</h2>
+                    </div>
+
+                    <label class="field">
+                        <span>Player name</span>
+                        <input id="name" placeholder="Enter player name">
+                    </label>
+
+                    <button class="primary-btn" onclick="mark()">Mark Present</button>
+                </article>
+
+                <article class="card">
+                    <div class="card-head">
+                        <p class="card-kicker">Batting Queue</p>
+                        <h2>Organize the next player</h2>
+                    </div>
+
+                    <label class="field">
+                        <span>Player name</span>
+                        <input id="qname" placeholder="Add player to the queue">
+                    </label>
+
+                    <div class="button-row">
+                        <button class="primary-btn" onclick="add()">Add Player</button>
+                        <button class="secondary-btn" onclick="next()">Next Up</button>
+                    </div>
+
+                    <div class="status-box">
+                        <p class="status-label">Current batter</p>
+                        <p id="current" class="status-value">No player selected</p>
+                    </div>
+                </article>
+
+                <article class="card">
+                    <div class="card-head">
+                        <p class="card-kicker">Drill Timer</p>
+                        <h2>Keep sessions on tempo</h2>
+                    </div>
+
+                    <label class="field">
+                        <span>Minutes</span>
+                        <input id="time" type="number" min="1" placeholder="Set drill duration">
+                    </label>
+
+                    <button class="primary-btn" onclick="startTimer()">Start Timer</button>
+
+                    <div class="timer-panel">
+                        <p class="status-label">Countdown</p>
+                        <h3 id="timer">00:00</h3>
+                    </div>
+                </article>
+            </section>
+
+            <section class="attendance-section">
+                <div class="section-head">
+                    <div>
+                        <p class="card-kicker">Present Students</p>
+                        <h2>Attendance list with late status</h2>
+                    </div>
+                    <button class="secondary-btn refresh-btn" onclick="loadAttendance()">Refresh</button>
+                </div>
+
+                <div class="table-shell">
+                    <table class="attendance-table">
+                        <thead>
+                            <tr>
+                                <th>Name</th>
+                                <th>Day</th>
+                                <th>Time</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody id="attendance-list">
+                            {% if attendance %}
+                                {% for student in attendance %}
+                                <tr>
+                                    <td>{{ student.name }}</td>
+                                    <td>{{ student.day }}</td>
+                                    <td>{{ student.time }}</td>
+                                    <td>
+                                        <span class="pill {{ 'pill-late' if student.late else 'pill-on-time' }}">
+                                            {{ student.status }}
+                                        </span>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            {% else %}
+                                <tr>
+                                    <td colspan="4" class="empty-state">No attendance has been recorded yet.</td>
+                                </tr>
+                            {% endif %}
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <p id="feedback" class="feedback" aria-live="polite"></p>
+        </main>
+    </div>
+
+    <script src="/static/script.js"></script>
+</body>
+</html>
