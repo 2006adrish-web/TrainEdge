@@ -50,6 +50,28 @@ async function loadAttendance() {
     renderAttendance(data.attendance || []);
 }
 
+async function clearAttendance() {
+    if (!attendanceList) {
+        return;
+    }
+
+    const confirmed = window.confirm("Clear all marked attendance for the next day?");
+    if (!confirmed) {
+        return;
+    }
+
+    const res = await fetch("/attendance/clear", {
+        method: "POST"
+    });
+    const data = await res.json();
+
+    await loadAttendance();
+    showFeedback(
+        data.cleared ? `${data.cleared} attendance record${data.cleared === 1 ? "" : "s"} cleared.` : "Attendance list is already empty.",
+        data.cleared ? "warning" : "success"
+    );
+}
+
 async function mark() {
     const nameInput = document.getElementById("name");
     const name = nameInput.value.trim();

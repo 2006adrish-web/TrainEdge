@@ -356,8 +356,29 @@ button:hover,
     margin-bottom: 18px;
 }
 
+.section-actions {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
 .refresh-btn {
     max-width: 180px;
+}
+
+.clear-btn {
+    max-width: 210px;
+}
+
+.danger-btn {
+    background: linear-gradient(135deg, #b54d39, #922f24);
+    color: #fff;
+    font-weight: 700;
+    box-shadow: 0 14px 28px rgba(146, 47, 36, 0.2);
+}
+
+.danger-btn:hover {
+    box-shadow: 0 18px 34px rgba(146, 47, 36, 0.26);
 }
 
 .table-shell {
@@ -493,6 +514,10 @@ button:hover,
     .section-head {
         flex-direction: column;
         align-items: flex-start;
+    }
+
+    .section-actions {
+        width: 100%;
     }
 }
 

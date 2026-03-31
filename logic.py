@@ -80,6 +80,14 @@ def get_attendance():
     return [normalize_record(record) for record in reversed(data["attendance"])]
 
 
+def clear_attendance():
+    data = load()
+    cleared_count = len(data["attendance"])
+    data["attendance"] = []
+    save(data)
+    return cleared_count
+
+
 def add_queue(name):
     data = load()
     data["queue"].append(name)

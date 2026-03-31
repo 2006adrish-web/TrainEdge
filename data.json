@@ -1,13 +1,4 @@
 {
-  "attendance": [
-    {
-      "name": "Adrish Sengupta",
-      "day": "Tuesday",
-      "time": "09:09",
-      "late": false,
-      "status": "On time",
-      "cutoff": null
-    }
-  ],
+  "attendance": [],
   "queue": []
 }

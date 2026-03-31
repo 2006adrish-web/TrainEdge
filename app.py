@@ -25,6 +25,12 @@ def attendance_list():
     return jsonify({"attendance": logic.get_attendance()})
 
 
+@app.route("/attendance/clear", methods=["POST"])
+def clear_attendance():
+    cleared_count = logic.clear_attendance()
+    return jsonify({"cleared": cleared_count})
+
+
 @app.route("/queue", methods=["POST"])
 def queue():
     name = request.json["name"]

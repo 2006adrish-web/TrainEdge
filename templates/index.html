@@ -104,7 +104,10 @@
                         <p class="card-kicker">Present Students</p>
                         <h2>Attendance list with late status</h2>
                     </div>
-                    <button class="secondary-btn refresh-btn" onclick="loadAttendance()">Refresh</button>
+                    <div class="section-actions">
+                        <button class="secondary-btn refresh-btn" onclick="loadAttendance()">Refresh</button>
+                        <button class="danger-btn clear-btn" onclick="clearAttendance()">Clear For Next Day</button>
+                    </div>
                 </div>
 
                 <div class="table-shell">
