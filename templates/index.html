@@ -29,15 +29,15 @@
                     <p class="eyebrow">Session Control</p>
                     <h2 class="hero-title">A calmer way to run attendance, queue order, and drill timing.</h2>
                     <p class="hero-text">
-                        Monday and Wednesday late arrivals are tracked after 3:00 PM. Saturday and Sunday late arrivals are tracked after 8:00 AM.
+                        Attendance is now stamped in IST, and the coach can decide after what time a player should be marked late.
                     </p>
                 </div>
 
                 <div class="hero-panel">
-                    <p class="hero-panel-label">Today's Rules</p>
-                    <h2>Late tracking built in</h2>
+                    <p class="hero-panel-label">Today&apos;s Rules</p>
+                    <h2>Late tracking in IST</h2>
                     <p>
-                        Every check-in is saved with the day, time, and whether the player arrived late.
+                        Every check-in is saved with the day, IST time, and whether the player arrived after {{ settings.late_deadline_label }}.
                     </p>
                 </div>
             </section>
@@ -55,6 +55,25 @@
                     </label>
 
                     <button class="primary-btn" onclick="mark()">Mark Present</button>
+                </article>
+
+                <article class="card">
+                    <div class="card-head">
+                        <p class="card-kicker">Coach Control</p>
+                        <h2>Set the late deadline</h2>
+                    </div>
+
+                    <label class="field">
+                        <span>Late after (IST)</span>
+                        <input id="late-deadline" type="time" value="{{ settings.late_deadline }}">
+                    </label>
+
+                    <button class="primary-btn" onclick="saveLateDeadline()">Save Deadline</button>
+
+                    <div class="status-box">
+                        <p class="status-label">Current cutoff</p>
+                        <p id="late-deadline-status" class="status-value">After {{ settings.late_deadline_label }} IST</p>
+                    </div>
                 </article>
 
                 <article class="card">

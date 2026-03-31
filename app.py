@@ -6,7 +6,11 @@ app = Flask(__name__)
 
 @app.route("/")
 def home():
-    return render_template("index.html", attendance=logic.get_attendance())
+    return render_template(
+        "index.html",
+        attendance=logic.get_attendance(),
+        settings=logic.get_settings(),
+    )
 
 
 @app.route("/pricing")
@@ -23,6 +27,17 @@ def about():
 def attendance():
     name = request.json["name"]
     return jsonify(logic.mark_attendance(name))
+
+
+@app.route("/settings")
+def get_settings():
+    return jsonify(logic.get_settings())
+
+
+@app.route("/settings/late-deadline", methods=["POST"])
+def update_late_deadline():
+    deadline = request.json["late_deadline"]
+    return jsonify(logic.update_late_deadline(deadline))
 
 
 @app.route("/attendance-list")

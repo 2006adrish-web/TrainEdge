@@ -1,4 +1,14 @@
 {
-  "attendance": [],
-  "queue": []
+  "attendance": [
+    {
+      "name": "Adrish Sengupta",
+      "day": "Tuesday",
+      "time": "18:50",
+      "late": true,
+      "status": "Late",
+      "cutoff": "3:00 PM"
+    }
+  ],
+  "queue": [],
+  "settings": {}
 }

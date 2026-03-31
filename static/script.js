@@ -2,6 +2,8 @@ const feedback = document.getElementById("feedback");
 const currentPlayer = document.getElementById("current");
 const timerDisplay = document.getElementById("timer");
 const attendanceList = document.getElementById("attendance-list");
+const lateDeadlineInput = document.getElementById("late-deadline");
+const lateDeadlineStatus = document.getElementById("late-deadline-status");
 
 function showFeedback(message, type = "success") {
     if (!feedback) {
@@ -50,6 +52,40 @@ async function loadAttendance() {
     renderAttendance(data.attendance || []);
 }
 
+async function saveLateDeadline() {
+    if (!lateDeadlineInput) {
+        return;
+    }
+
+    const late_deadline = lateDeadlineInput.value;
+
+    if (!late_deadline) {
+        showFeedback("Choose the IST time after which attendance should count as late.", "warning");
+        lateDeadlineInput.focus();
+        return;
+    }
+
+    const res = await fetch("/settings/late-deadline", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ late_deadline })
+    });
+    const data = await res.json();
+
+    updateLateDeadlineStatus(data);
+    showFeedback(`Late deadline saved. Players checking in after ${data.late_deadline_label} IST will be marked late.`, "success");
+}
+
+function updateLateDeadlineStatus(settings) {
+    if (lateDeadlineInput && settings.late_deadline) {
+        lateDeadlineInput.value = settings.late_deadline;
+    }
+
+    if (lateDeadlineStatus && settings.late_deadline_label) {
+        lateDeadlineStatus.innerText = `After ${settings.late_deadline_label} IST`;
+    }
+}
+
 async function clearAttendance() {
     if (!attendanceList) {
         return;
@@ -89,7 +125,9 @@ async function mark() {
     });
 
     const data = await res.json();
-    const lateText = data.late ? ` Marked late for ${data.day}.` : ` On time for ${data.day}.`;
+    const lateText = data.late
+        ? ` Marked late for ${data.day} because the cutoff is ${data.cutoff} IST.`
+        : ` On time for ${data.day}.`;
 
     showFeedback(`${data.name} checked in at ${data.time}.${lateText}`, data.late ? "warning" : "success");
     nameInput.value = "";
