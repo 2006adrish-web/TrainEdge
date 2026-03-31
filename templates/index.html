@@ -116,6 +116,39 @@
                         <h3 id="timer">00:00</h3>
                     </div>
                 </article>
+
+                <article class="card">
+                    <div class="card-head">
+                        <p class="card-kicker">Replay System</p>
+                        <h2>Review the last ball</h2>
+                    </div>
+
+                    <div class="timer-panel">
+                        <video
+                            id="replay-video"
+                            autoplay
+                            muted
+                            playsinline
+                            controls
+                            style="width: 100%; border-radius: 16px; background: rgba(28, 26, 24, 0.16); aspect-ratio: 16 / 9; object-fit: cover;"
+                        ></video>
+                    </div>
+
+                    <div class="button-row" style="margin-top: 18px;">
+                        <button class="primary-btn" onclick="startCamera()">Start Camera</button>
+                        <button class="secondary-btn" onclick="startRecording()">Start Recording</button>
+                    </div>
+
+                    <div class="button-row">
+                        <button class="secondary-btn" onclick="stopRecording()">Stop Recording</button>
+                        <button class="secondary-btn" onclick="replayLastClip()">Replay Last Clip</button>
+                    </div>
+
+                    <div class="status-box">
+                        <p class="status-label">Replay status</p>
+                        <p id="replay-status" class="status-value">Camera is off</p>
+                    </div>
+                </article>
             </section>
 
             <section class="attendance-section">

@@ -4,6 +4,14 @@ const timerDisplay = document.getElementById("timer");
 const attendanceList = document.getElementById("attendance-list");
 const lateDeadlineInput = document.getElementById("late-deadline");
 const lateDeadlineStatus = document.getElementById("late-deadline-status");
+const replayVideo = document.getElementById("replay-video");
+const replayStatus = document.getElementById("replay-status");
+
+let cameraStream = null;
+let mediaRecorder = null;
+let recordedChunks = [];
+let lastClipBlob = null;
+let lastClipUrl = null;
 
 function showFeedback(message, type = "success") {
     if (!feedback) {
@@ -84,6 +92,195 @@ function updateLateDeadlineStatus(settings) {
     if (lateDeadlineStatus && settings.late_deadline_label) {
         lateDeadlineStatus.innerText = `After ${settings.late_deadline_label} IST`;
     }
+}
+
+function updateReplayStatus(message) {
+    if (!replayStatus) {
+        return;
+    }
+
+    replayStatus.innerText = message;
+}
+
+function setLivePreview() {
+    if (!replayVideo || !cameraStream) {
+        return;
+    }
+
+    replayVideo.pause();
+    replayVideo.controls = false;
+    replayVideo.muted = true;
+    replayVideo.src = "";
+    replayVideo.srcObject = cameraStream;
+}
+
+function resetLastClipUrl() {
+    if (!lastClipUrl) {
+        return;
+    }
+
+    URL.revokeObjectURL(lastClipUrl);
+    lastClipUrl = null;
+}
+
+function getSupportedMimeType() {
+    if (!window.MediaRecorder) {
+        return "";
+    }
+
+    const mimeTypes = [
+        "video/webm;codecs=vp9",
+        "video/webm;codecs=vp8",
+        "video/webm",
+        "video/mp4"
+    ];
+
+    for (const mimeType of mimeTypes) {
+        if (MediaRecorder.isTypeSupported(mimeType)) {
+            return mimeType;
+        }
+    }
+
+    return "";
+}
+
+async function startCamera() {
+    if (!replayVideo) {
+        return;
+    }
+
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        showFeedback("This browser does not support camera access.", "error");
+        updateReplayStatus("Camera unsupported");
+        return;
+    }
+
+    try {
+        if (cameraStream) {
+            setLivePreview();
+            await replayVideo.play();
+            updateReplayStatus("Camera is live");
+            showFeedback("Camera is already running.", "success");
+            return;
+        }
+
+        cameraStream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: "environment" },
+            audio: false
+        });
+
+        setLivePreview();
+        await replayVideo.play();
+        updateReplayStatus("Camera is live");
+        showFeedback("Camera started. You can record the next ball now.", "success");
+    } catch (error) {
+        console.error(error);
+        updateReplayStatus("Camera permission denied");
+        showFeedback("Camera access was denied or unavailable on this device.", "error");
+    }
+}
+
+async function startRecording() {
+    if (!window.MediaRecorder) {
+        showFeedback("This browser does not support video recording.", "error");
+        updateReplayStatus("Recording unsupported");
+        return;
+    }
+
+    if (!cameraStream) {
+        await startCamera();
+    }
+
+    if (!cameraStream) {
+        return;
+    }
+
+    if (mediaRecorder && mediaRecorder.state === "recording") {
+        showFeedback("Recording is already in progress.", "warning");
+        return;
+    }
+
+    const mimeType = getSupportedMimeType();
+    const recorderOptions = mimeType ? { mimeType } : undefined;
+
+    recordedChunks = [];
+    mediaRecorder = new MediaRecorder(cameraStream, recorderOptions);
+
+    mediaRecorder.addEventListener("dataavailable", (event) => {
+        if (event.data && event.data.size > 0) {
+            recordedChunks.push(event.data);
+        }
+    });
+
+    mediaRecorder.addEventListener("stop", () => {
+        if (!recordedChunks.length) {
+            updateReplayStatus("No clip recorded");
+            showFeedback("Recording stopped, but no clip was captured.", "warning");
+            return;
+        }
+
+        const clipType = mimeType || recordedChunks[0].type || "video/webm";
+        lastClipBlob = new Blob(recordedChunks, { type: clipType });
+        updateReplayStatus("Last clip is ready");
+        showFeedback("Recording saved. Tap replay to review the last ball.", "success");
+    });
+
+    mediaRecorder.start();
+    updateReplayStatus("Recording in progress");
+    showFeedback("Recording started.", "success");
+}
+
+function stopRecording() {
+    if (!mediaRecorder || mediaRecorder.state !== "recording") {
+        showFeedback("No active recording to stop.", "warning");
+        return;
+    }
+
+    mediaRecorder.stop();
+    updateReplayStatus("Saving clip");
+}
+
+async function replayLastClip() {
+    if (!replayVideo) {
+        return;
+    }
+
+    if (!lastClipBlob) {
+        showFeedback("Record a clip first to replay the last ball.", "warning");
+        updateReplayStatus("No clip available");
+        return;
+    }
+
+    resetLastClipUrl();
+    lastClipUrl = URL.createObjectURL(lastClipBlob);
+
+    replayVideo.pause();
+    replayVideo.srcObject = null;
+    replayVideo.src = lastClipUrl;
+    replayVideo.controls = true;
+    replayVideo.muted = false;
+    replayVideo.currentTime = 0;
+
+    try {
+        await replayVideo.play();
+        updateReplayStatus("Playing last clip");
+        showFeedback("Replaying the last recorded clip.", "success");
+    } catch (error) {
+        console.error(error);
+        showFeedback("Replay could not start automatically. Use the video controls to play it.", "warning");
+    }
+}
+
+if (replayVideo) {
+    replayVideo.addEventListener("ended", () => {
+        if (!cameraStream || mediaRecorder?.state === "recording") {
+            return;
+        }
+
+        setLivePreview();
+        replayVideo.play().catch(() => {});
+        updateReplayStatus("Camera is live");
+    });
 }
 
 async function clearAttendance() {
