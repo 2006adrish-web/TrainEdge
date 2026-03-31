@@ -6,12 +6,28 @@ const lateDeadlineInput = document.getElementById("late-deadline");
 const lateDeadlineStatus = document.getElementById("late-deadline-status");
 const replayVideo = document.getElementById("replay-video");
 const replayStatus = document.getElementById("replay-status");
+const trackingOverlay = document.getElementById("tracking-overlay");
 
 let cameraStream = null;
 let mediaRecorder = null;
 let recordedChunks = [];
 let lastClipBlob = null;
 let lastClipUrl = null;
+let trackingEnabled = false;
+let trackingFrameId = null;
+let hiddenTrackingCanvas = null;
+let hiddenTrackingContext = null;
+let trackingOverlayContext = null;
+let lastTrackingTimestamp = 0;
+let trailPoints = [];
+
+const TRACKING_COLOR = {
+    redMin: 150,
+    greenMax: 120,
+    blueMax: 120
+};
+const TRACKING_FRAME_INTERVAL = 80;
+const MAX_TRAIL_POINTS = 25;
 
 function showFeedback(message, type = "success") {
     if (!feedback) {
@@ -102,6 +118,212 @@ function updateReplayStatus(message) {
     replayStatus.innerText = message;
 }
 
+function ensureTrackingContexts() {
+    if (!trackingOverlay || !replayVideo) {
+        return false;
+    }
+
+    if (!trackingOverlayContext) {
+        trackingOverlayContext = trackingOverlay.getContext("2d");
+    }
+
+    if (!hiddenTrackingCanvas) {
+        hiddenTrackingCanvas = document.createElement("canvas");
+        hiddenTrackingContext = hiddenTrackingCanvas.getContext("2d", { willReadFrequently: true });
+    }
+
+    if (!trackingOverlayContext || !hiddenTrackingContext) {
+        return false;
+    }
+
+    return true;
+}
+
+function syncTrackingCanvasSize() {
+    if (!ensureTrackingContexts()) {
+        return false;
+    }
+
+    const width = replayVideo.videoWidth || replayVideo.clientWidth;
+    const height = replayVideo.videoHeight || replayVideo.clientHeight;
+
+    if (!width || !height) {
+        return false;
+    }
+
+    if (trackingOverlay.width !== width || trackingOverlay.height !== height) {
+        trackingOverlay.width = width;
+        trackingOverlay.height = height;
+    }
+
+    if (hiddenTrackingCanvas.width !== width || hiddenTrackingCanvas.height !== height) {
+        hiddenTrackingCanvas.width = width;
+        hiddenTrackingCanvas.height = height;
+    }
+
+    return true;
+}
+
+function clearTrackingOverlay() {
+    if (!trackingOverlayContext || !trackingOverlay) {
+        return;
+    }
+
+    trackingOverlayContext.clearRect(0, 0, trackingOverlay.width, trackingOverlay.height);
+}
+
+function detectBallPosition(frame) {
+    const { data, width, height } = frame;
+    let totalX = 0;
+    let totalY = 0;
+    let matchCount = 0;
+    const step = 4;
+
+    for (let y = 0; y < height; y += step) {
+        for (let x = 0; x < width; x += step) {
+            const index = (y * width + x) * 4;
+            const red = data[index];
+            const green = data[index + 1];
+            const blue = data[index + 2];
+
+            if (red >= TRACKING_COLOR.redMin && green <= TRACKING_COLOR.greenMax && blue <= TRACKING_COLOR.blueMax) {
+                totalX += x;
+                totalY += y;
+                matchCount += 1;
+            }
+        }
+    }
+
+    if (!matchCount) {
+        return null;
+    }
+
+    return {
+        x: totalX / matchCount,
+        y: totalY / matchCount
+    };
+}
+
+function drawTrackingTrail() {
+    if (!trackingOverlayContext || !trailPoints.length) {
+        return;
+    }
+
+    trackingOverlayContext.lineWidth = 4;
+    trackingOverlayContext.strokeStyle = "rgba(13, 110, 110, 0.9)";
+    trackingOverlayContext.lineJoin = "round";
+    trackingOverlayContext.lineCap = "round";
+    trackingOverlayContext.beginPath();
+
+    trailPoints.forEach((point, index) => {
+        if (index === 0) {
+            trackingOverlayContext.moveTo(point.x, point.y);
+            return;
+        }
+
+        trackingOverlayContext.lineTo(point.x, point.y);
+    });
+
+    trackingOverlayContext.stroke();
+}
+
+function drawTrackedBall(position) {
+    if (!trackingOverlayContext) {
+        return;
+    }
+
+    trackingOverlayContext.beginPath();
+    trackingOverlayContext.arc(position.x, position.y, 12, 0, Math.PI * 2);
+    trackingOverlayContext.fillStyle = "rgba(191, 139, 48, 0.28)";
+    trackingOverlayContext.fill();
+    trackingOverlayContext.lineWidth = 3;
+    trackingOverlayContext.strokeStyle = "#bf8b30";
+    trackingOverlayContext.stroke();
+}
+
+function renderTrackingFrame(position) {
+    clearTrackingOverlay();
+
+    if (!position) {
+        return;
+    }
+
+    trailPoints.push(position);
+
+    if (trailPoints.length > MAX_TRAIL_POINTS) {
+        trailPoints.shift();
+    }
+
+    drawTrackingTrail();
+    drawTrackedBall(position);
+}
+
+function runTrackingLoop(timestamp = 0) {
+    if (!trackingEnabled || !replayVideo || replayVideo.paused || replayVideo.ended) {
+        trackingFrameId = null;
+        return;
+    }
+
+    if (!syncTrackingCanvasSize()) {
+        trackingFrameId = requestAnimationFrame(runTrackingLoop);
+        return;
+    }
+
+    if (timestamp - lastTrackingTimestamp >= TRACKING_FRAME_INTERVAL) {
+        lastTrackingTimestamp = timestamp;
+        hiddenTrackingContext.drawImage(replayVideo, 0, 0, hiddenTrackingCanvas.width, hiddenTrackingCanvas.height);
+        const frame = hiddenTrackingContext.getImageData(0, 0, hiddenTrackingCanvas.width, hiddenTrackingCanvas.height);
+        const position = detectBallPosition(frame);
+        renderTrackingFrame(position);
+    }
+
+    trackingFrameId = requestAnimationFrame(runTrackingLoop);
+}
+
+function beginTrackingLoop() {
+    if (!trackingEnabled || trackingFrameId !== null) {
+        return;
+    }
+
+    lastTrackingTimestamp = 0;
+    trackingFrameId = requestAnimationFrame(runTrackingLoop);
+}
+
+function startTracking() {
+    if (!replayVideo) {
+        return;
+    }
+
+    if (!ensureTrackingContexts()) {
+        showFeedback("Tracking overlay could not be started on this browser.", "error");
+        return;
+    }
+
+    trackingEnabled = true;
+    trailPoints = [];
+    clearTrackingOverlay();
+    updateReplayStatus("Tracking enabled");
+    showFeedback("Ball tracking started. Use a bright red ball for best results.", "success");
+
+    if (!replayVideo.paused && !replayVideo.ended) {
+        beginTrackingLoop();
+    }
+}
+
+function stopTracking() {
+    trackingEnabled = false;
+
+    if (trackingFrameId !== null) {
+        cancelAnimationFrame(trackingFrameId);
+        trackingFrameId = null;
+    }
+
+    trailPoints = [];
+    clearTrackingOverlay();
+    updateReplayStatus(cameraStream ? "Camera is live" : "Tracking stopped");
+    showFeedback("Ball tracking stopped.", "warning");
+}
+
 function setLivePreview() {
     if (!replayVideo || !cameraStream) {
         return;
@@ -112,6 +334,11 @@ function setLivePreview() {
     replayVideo.muted = true;
     replayVideo.src = "";
     replayVideo.srcObject = cameraStream;
+
+    if (trackingEnabled) {
+        trailPoints = [];
+        clearTrackingOverlay();
+    }
 }
 
 function resetLastClipUrl() {
@@ -173,6 +400,7 @@ async function startCamera() {
         await replayVideo.play();
         updateReplayStatus("Camera is live");
         showFeedback("Camera started. You can record the next ball now.", "success");
+        beginTrackingLoop();
     } catch (error) {
         console.error(error);
         updateReplayStatus("Camera permission denied");
@@ -265,6 +493,10 @@ async function replayLastClip() {
         await replayVideo.play();
         updateReplayStatus("Playing last clip");
         showFeedback("Replaying the last recorded clip.", "success");
+        if (trackingEnabled) {
+            trailPoints = [];
+            beginTrackingLoop();
+        }
     } catch (error) {
         console.error(error);
         showFeedback("Replay could not start automatically. Use the video controls to play it.", "warning");
@@ -272,14 +504,36 @@ async function replayLastClip() {
 }
 
 if (replayVideo) {
+    replayVideo.addEventListener("play", () => {
+        if (trackingEnabled) {
+            beginTrackingLoop();
+        }
+    });
+
+    replayVideo.addEventListener("pause", () => {
+        if (trackingFrameId !== null) {
+            cancelAnimationFrame(trackingFrameId);
+            trackingFrameId = null;
+        }
+    });
+
     replayVideo.addEventListener("ended", () => {
+        if (trackingFrameId !== null) {
+            cancelAnimationFrame(trackingFrameId);
+            trackingFrameId = null;
+        }
+
         if (!cameraStream || mediaRecorder?.state === "recording") {
             return;
         }
 
         setLivePreview();
         replayVideo.play().catch(() => {});
-        updateReplayStatus("Camera is live");
+        updateReplayStatus(trackingEnabled ? "Tracking enabled" : "Camera is live");
+    });
+
+    replayVideo.addEventListener("loadedmetadata", () => {
+        syncTrackingCanvasSize();
     });
 }
 
