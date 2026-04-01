@@ -1,8 +1,9 @@
 import os
 import sqlite3
+from functools import wraps
 from datetime import date
 
-from flask import Flask, flash, jsonify, redirect, render_template, request, session, url_for
+from flask import Flask, flash, g, jsonify, redirect, render_template, request, session, url_for
 from werkzeug.security import check_password_hash, generate_password_hash
 import logic
 
@@ -12,6 +13,16 @@ app.secret_key = os.environ.get("TRAINEDGE_SECRET_KEY", "trainedge-dev-secret")
 DATABASE_PATH = os.path.join(os.path.dirname(__file__), "database.db")
 
 
+def as_positive_int(value):
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return None
+    if parsed <= 0:
+        return None
+    return parsed
+
+
 def get_db():
     conn = sqlite3.connect(DATABASE_PATH)
     conn.row_factory = sqlite3.Row
@@ -19,15 +30,7 @@ def get_db():
 
 
 def get_current_club_id():
-    club_id = session.get("club_id", 1)
-    try:
-        club_id = int(club_id)
-        if club_id <= 0:
-            club_id = 1
-    except (TypeError, ValueError):
-        club_id = 1
-    print("Current club:", club_id)
-    return club_id
+    return as_positive_int(session.get("club_id"))
 
 
 def get_plan_limits(plan):
@@ -41,14 +44,21 @@ def get_plan_limits(plan):
             "max_players": 50,
             "replay": True,
         }
-    else:
+    elif plan == "elite":
         return {
             "max_players": 9999,
             "replay": True,
         }
+    else:
+        return {
+            "max_players": 15,
+            "replay": False,
+        }
 
 
 def get_club_plan(club_id):
+    if not club_id:
+        return "free"
     conn = get_db()
     try:
         club = conn.execute(
@@ -58,8 +68,98 @@ def get_club_plan(club_id):
     finally:
         conn.close()
     plan = (club["plan"] if club and club["plan"] else "free").lower()
-    print("PLAN:", plan)
+    if plan not in {"free", "pro", "elite"}:
+        return "free"
     return plan
+
+
+def get_user_by_id(user_id):
+    conn = get_db()
+    try:
+        return conn.execute(
+            """
+            SELECT id, email, club_id, role, plan
+            FROM users
+            WHERE id = ?
+            """,
+            (user_id,),
+        ).fetchone()
+    finally:
+        conn.close()
+
+
+def get_user_plan():
+    user_id = session.get("user_id")
+    if not user_id:
+        return "free"
+
+    try:
+        normalized_user_id = int(user_id)
+    except (TypeError, ValueError):
+        return "free"
+
+    user = get_user_by_id(normalized_user_id)
+    if not user:
+        return "free"
+
+    plan = (user["plan"] or "free").strip().lower()
+    return plan if plan in {"free", "pro", "elite"} else "free"
+
+
+def login_required(route_handler):
+    @wraps(route_handler)
+    def wrapped(*args, **kwargs):
+        normalized_user_id = as_positive_int(session.get("user_id"))
+        if not normalized_user_id:
+            session.clear()
+            if request.endpoint in {"home", "dashboard"}:
+                return redirect(url_for("login"))
+            if request.is_json or request.method != "GET":
+                return jsonify({"error": "Unauthorized"}), 401
+            return redirect(url_for("login"))
+
+        user = get_user_by_id(normalized_user_id)
+        normalized_club_id = as_positive_int(user["club_id"]) if user else None
+        if not user or not normalized_club_id:
+            session.clear()
+            if request.endpoint in {"home", "dashboard"}:
+                return redirect(url_for("login"))
+            if request.is_json or request.method != "GET":
+                return jsonify({"error": "Unauthorized"}), 401
+            return redirect(url_for("login"))
+
+        session["user_id"] = user["id"]
+        session["club_id"] = normalized_club_id
+        g.current_user = user
+        return route_handler(*args, **kwargs)
+
+    return wrapped
+
+
+def pro_required(route_handler):
+    @wraps(route_handler)
+    @login_required
+    def wrapped(*args, **kwargs):
+        plan = get_user_plan()
+        if plan not in {"pro", "elite"}:
+            if request.path.startswith("/api") or request.is_json:
+                return jsonify({"ok": False, "message": "This feature requires a Pro or Elite plan."}), 403
+            return redirect(url_for("pricing"))
+        return route_handler(*args, **kwargs)
+
+    return wrapped
+
+
+def upgrade_user_to_pro(user_id):
+    conn = get_db()
+    try:
+        conn.execute(
+            "UPDATE users SET plan = 'pro' WHERE id = ?",
+            (user_id,),
+        )
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def init_db():
@@ -96,9 +196,11 @@ def init_db():
             """
             CREATE TABLE IF NOT EXISTS users (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT,
                 email TEXT UNIQUE,
                 password_hash TEXT,
                 club_id INTEGER,
+                plan TEXT NOT NULL DEFAULT 'free',
                 role TEXT,
                 FOREIGN KEY (club_id) REFERENCES clubs (id)
             )
@@ -142,6 +244,12 @@ def init_db():
         conn.execute("CREATE INDEX IF NOT EXISTS idx_attendance_club_id ON attendance (club_id)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_attendance_player_id ON attendance (player_id)")
         ensure_club_column(conn, "users")
+        if not column_exists(conn, "users", "username"):
+            conn.execute("ALTER TABLE users ADD COLUMN username TEXT")
+        if not column_exists(conn, "users", "plan"):
+            conn.execute("ALTER TABLE users ADD COLUMN plan TEXT DEFAULT 'free'")
+        conn.execute("UPDATE users SET plan = 'free' WHERE plan IS NULL OR trim(plan) = ''")
+        conn.execute("UPDATE users SET username = email WHERE username IS NULL OR trim(username) = ''")
         ensure_club_column(conn, "players")
         ensure_club_column(conn, "attendance")
         ensure_club_column(conn, "sessions")
@@ -152,37 +260,51 @@ def init_db():
 
 def render_dashboard():
     club_id = get_current_club_id()
-    conn = get_db()
-    try:
-        club = conn.execute(
-            "SELECT id, name, plan FROM clubs WHERE id = ?",
-            (club_id,),
-        ).fetchone()
-    finally:
-        conn.close()
 
     return render_template(
         "index.html",
         attendance=logic.get_attendance(club_id),
         settings=logic.get_settings(club_id),
-        club_plan=(club["plan"] if club else "free"),
+        club_plan=get_user_plan(),
     )
+
+
+@app.before_request
+def validate_session():
+    user_id = session.get("user_id")
+    if not user_id:
+        return
+
+    normalized_user_id = as_positive_int(user_id)
+    if not normalized_user_id:
+        session.clear()
+        return
+
+    user = get_user_by_id(normalized_user_id)
+    normalized_club_id = as_positive_int(user["club_id"]) if user else None
+    if not user or not normalized_club_id:
+        session.clear()
+        return
+
+    session["user_id"] = user["id"]
+    session["club_id"] = normalized_club_id
+    g.current_user = user
 
 
 @app.context_processor
 def inject_auth_state():
-    return {"is_logged_in": "user_id" in session}
+    return {"is_logged_in": "user_id" in session, "user_plan": get_user_plan()}
 
 
 @app.route("/")
+@login_required
 def home():
     return render_dashboard()
 
 
 @app.route("/dashboard")
+@login_required
 def dashboard():
-    if "user_id" not in session:
-        return redirect("/login")
     return render_dashboard()
 
 
@@ -200,6 +322,7 @@ def about():
 def register():
     if request.method == "POST":
         email = request.form.get("email", "").strip().lower()
+        username = request.form.get("username", "").strip() or email
         password = request.form.get("password", "")
         club_name = request.form.get("club_name", "").strip()
         role = request.form.get("role", "").strip() or "coach"
@@ -225,10 +348,10 @@ def register():
             club_id = club_cursor.lastrowid
             user_cursor = conn.execute(
                 """
-                INSERT INTO users (email, password_hash, club_id, role)
-                VALUES (?, ?, ?, ?)
+                INSERT INTO users (username, email, password_hash, club_id, plan, role)
+                VALUES (?, ?, ?, ?, 'free', ?)
                 """,
-                (email, generate_password_hash(password), club_id, role),
+                (username, email, generate_password_hash(password), club_id, role),
             )
             conn.commit()
         except sqlite3.Error:
@@ -260,7 +383,7 @@ def login():
         try:
             user = conn.execute(
                 """
-                SELECT id, password_hash, club_id
+                SELECT id, password_hash, club_id, plan
                 FROM users
                 WHERE email = ?
                 """,
@@ -293,6 +416,7 @@ def logout():
 
 
 @app.route("/attendance", methods=["POST"])
+@login_required
 def attendance():
     club_id = get_current_club_id()
     name = request.json["name"]
@@ -300,12 +424,14 @@ def attendance():
 
 
 @app.route("/settings")
+@login_required
 def get_settings():
     club_id = get_current_club_id()
     return jsonify(logic.get_settings(club_id))
 
 
 @app.route("/settings/late-deadline", methods=["POST"])
+@login_required
 def update_late_deadline():
     club_id = get_current_club_id()
     deadline = request.json["late_deadline"]
@@ -313,12 +439,14 @@ def update_late_deadline():
 
 
 @app.route("/attendance-list")
+@login_required
 def attendance_list():
     club_id = get_current_club_id()
     return jsonify({"attendance": logic.get_attendance(club_id)})
 
 
 @app.route("/attendance/clear", methods=["POST"])
+@login_required
 def clear_attendance():
     club_id = get_current_club_id()
     cleared_count = logic.clear_attendance(club_id)
@@ -326,6 +454,7 @@ def clear_attendance():
 
 
 @app.route("/queue", methods=["POST"])
+@login_required
 def queue():
     club_id = get_current_club_id()
     name = request.json["name"]
@@ -333,16 +462,15 @@ def queue():
 
 
 @app.route("/next")
+@login_required
 def next_p():
     club_id = get_current_club_id()
     return jsonify({"player": logic.next_player(club_id)})
 
 
 @app.route("/players")
+@login_required
 def players():
-    if "user_id" not in session:
-        return jsonify({"error": "Unauthorized"}), 401
-
     club_id = get_current_club_id()
     conn = get_db()
     try:
@@ -356,6 +484,7 @@ def players():
 
 
 @app.route("/players_list")
+@login_required
 def players_list():
     club_id = get_current_club_id()
     conn = get_db()
@@ -370,11 +499,8 @@ def players_list():
 
 
 @app.route("/upgrade", methods=["POST"])
+@login_required
 def upgrade():
-    if "user_id" not in session:
-        return jsonify({"error": "Unauthorized"}), 401
-
-    club_id = get_current_club_id()
     code = request.form.get("code", "").strip().lower()
     if not code and request.is_json:
         code = (request.json or {}).get("code", "").strip().lower()
@@ -382,25 +508,15 @@ def upgrade():
     if code != "alumonisgreat":
         return jsonify({"ok": False, "message": "Invalid upgrade code."}), 400
 
-    conn = get_db()
-    try:
-        conn.execute(
-            "UPDATE clubs SET plan = 'pro' WHERE id = ?",
-            (club_id,),
-        )
-        conn.commit()
-    finally:
-        conn.close()
-    return jsonify({"ok": True, "message": "Upgrade successful. Your club is now on PRO."})
+    upgrade_user_to_pro(session["user_id"])
+    return jsonify({"ok": True, "message": "Upgrade successful. Your account is now on PRO."})
 
 
 @app.route("/add_player", methods=["POST"])
+@login_required
 def add_player():
-    if "user_id" not in session:
-        return jsonify({"error": "Unauthorized"}), 401
-
     club_id = get_current_club_id()
-    plan = get_club_plan(club_id)
+    plan = get_user_plan()
     limits = get_plan_limits(plan)
     name = request.form.get("name", "").strip()
     if not name and request.is_json:
@@ -436,10 +552,8 @@ def add_player():
 
 
 @app.route("/delete_player", methods=["POST"])
+@login_required
 def delete_player():
-    if "user_id" not in session:
-        return jsonify({"error": "Unauthorized"}), 401
-
     club_id = get_current_club_id()
     raw_player_id = request.form.get("id", "").strip()
     if not raw_player_id and request.is_json:
@@ -466,10 +580,8 @@ def delete_player():
 
 
 @app.route("/mark_attendance", methods=["POST"])
+@login_required
 def mark_attendance():
-    if "user_id" not in session:
-        return jsonify({"error": "Unauthorized"}), 401
-
     club_id = get_current_club_id()
     raw_player_id = request.form.get("player_id", "").strip()
     status = request.form.get("status", "").strip().lower()
@@ -513,12 +625,10 @@ def mark_attendance():
 
 
 @app.route("/mark_present_bulk", methods=["POST"])
+@login_required
 def mark_present_bulk():
-    if "user_id" not in session:
-        return jsonify({"error": "Unauthorized"}), 401
-
     club_id = get_current_club_id()
-    plan = get_club_plan(club_id)
+    plan = get_user_plan()
     limits = get_plan_limits(plan)
     today = date.today().isoformat()
 
@@ -616,17 +726,20 @@ def mark_present_bulk():
 
 
 @app.route("/replay/access")
+@pro_required
 def replay_access():
-    if "user_id" not in session:
-        return jsonify({"error": "Unauthorized"}), 401
-
-    club_id = get_current_club_id()
-    plan = get_club_plan(club_id)
+    plan = get_user_plan()
     limits = get_plan_limits(plan)
 
     if not limits["replay"]:
         return jsonify({"ok": False, "message": "Replay available only in Pro plan."}), 403
     return jsonify({"ok": True, "plan": plan})
+
+
+@app.route("/pro-feature")
+@pro_required
+def pro_feature():
+    return jsonify({"ok": True, "message": "Pro feature unlocked.", "plan": get_user_plan()})
 
 
 init_db()
