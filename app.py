@@ -355,6 +355,20 @@ def players():
     return jsonify({"players": [dict(row) for row in rows]})
 
 
+@app.route("/players_list")
+def players_list():
+    club_id = get_current_club_id()
+    conn = get_db()
+    try:
+        rows = conn.execute(
+            "SELECT name FROM players WHERE club_id = ? ORDER BY name COLLATE NOCASE ASC",
+            (club_id,),
+        ).fetchall()
+    finally:
+        conn.close()
+    return jsonify([row["name"] for row in rows])
+
+
 @app.route("/upgrade", methods=["POST"])
 def upgrade():
     if "user_id" not in session:

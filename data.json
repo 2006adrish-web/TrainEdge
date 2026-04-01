@@ -6,16 +6,7 @@
       "settings": {}
     },
     "2": {
-      "attendance": [
-        {
-          "name": "Adrish Sengupta",
-          "day": "Wednesday",
-          "time": "08:31",
-          "late": false,
-          "status": "On time",
-          "cutoff": "3:00 PM"
-        }
-      ],
+      "attendance": [],
       "queue": [],
       "settings": {}
     }

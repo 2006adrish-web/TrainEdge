@@ -11,6 +11,10 @@ const upgradeCodeInput = document.getElementById("upgrade-code");
 const playerNameInput = document.getElementById("player-name");
 const playerList = document.getElementById("player-list");
 const bulkPresentNamesInput = document.getElementById("bulk-present-names");
+const attendanceNameInput = document.getElementById("name");
+const suggestionsBox = document.getElementById("suggestions");
+
+let playerNameSuggestions = [];
 
 let cameraStream = null;
 let mediaRecorder = null;
@@ -50,6 +54,101 @@ function escapeHtml(value) {
         .replace(/>/g, "&gt;")
         .replace(/"/g, "&quot;")
         .replace(/'/g, "&#039;");
+}
+
+function clearSuggestions() {
+    if (!suggestionsBox) {
+        return;
+    }
+    suggestionsBox.innerHTML = "";
+    suggestionsBox.style.display = "none";
+    suggestionsBox.style.border = "none";
+    suggestionsBox.style.background = "transparent";
+}
+
+function renderSuggestions(matches) {
+    if (!suggestionsBox || !attendanceNameInput) {
+        return;
+    }
+
+    clearSuggestions();
+
+    if (!matches.length) {
+        return;
+    }
+
+    suggestionsBox.style.display = "block";
+    suggestionsBox.style.borderRadius = "10px";
+    suggestionsBox.style.overflow = "hidden";
+    suggestionsBox.style.border = "1px solid rgba(255, 255, 255, 0.12)";
+    suggestionsBox.style.background = "rgba(18, 30, 40, 0.08)";
+
+    matches.forEach((name) => {
+        const item = document.createElement("div");
+        item.innerText = name;
+        item.style.padding = "10px 12px";
+        item.style.cursor = "pointer";
+        item.style.borderBottom = "1px solid rgba(255, 255, 255, 0.08)";
+
+        item.addEventListener("mouseenter", () => {
+            item.style.background = "rgba(13, 110, 110, 0.12)";
+        });
+        item.addEventListener("mouseleave", () => {
+            item.style.background = "transparent";
+        });
+        item.addEventListener("click", () => {
+            attendanceNameInput.value = name;
+            clearSuggestions();
+            attendanceNameInput.focus();
+        });
+
+        suggestionsBox.appendChild(item);
+    });
+}
+
+async function loadPlayerSuggestions() {
+    if (!attendanceNameInput || !suggestionsBox) {
+        return;
+    }
+
+    try {
+        const res = await fetch("/players_list");
+        if (!res.ok) {
+            playerNameSuggestions = [];
+            return;
+        }
+        const data = await res.json();
+        playerNameSuggestions = Array.isArray(data) ? data : [];
+    } catch (error) {
+        console.error(error);
+        playerNameSuggestions = [];
+    }
+}
+
+function setupPlayerAutocomplete() {
+    if (!attendanceNameInput || !suggestionsBox) {
+        return;
+    }
+
+    attendanceNameInput.addEventListener("input", () => {
+        const value = attendanceNameInput.value.trim().toLowerCase();
+        clearSuggestions();
+
+        if (!value) {
+            return;
+        }
+
+        const filtered = playerNameSuggestions
+            .filter((name) => String(name).toLowerCase().includes(value))
+            .slice(0, 8);
+        renderSuggestions(filtered);
+    });
+
+    attendanceNameInput.addEventListener("blur", () => {
+        setTimeout(() => {
+            clearSuggestions();
+        }, 150);
+    });
 }
 
 function renderAttendance(records) {
@@ -605,7 +704,7 @@ async function clearAttendance() {
 }
 
 async function mark() {
-    const nameInput = document.getElementById("name");
+    const nameInput = attendanceNameInput || document.getElementById("name");
     const name = nameInput.value.trim();
 
     if (!name) {
@@ -627,6 +726,7 @@ async function mark() {
 
     showFeedback(`${data.name} checked in at ${data.time}.${lateText}`, data.late ? "warning" : "success");
     nameInput.value = "";
+    clearSuggestions();
     await loadAttendance();
 }
 
@@ -661,6 +761,7 @@ async function markPresentBulk() {
     bulkPresentNamesInput.value = "";
     await loadAttendance();
     await loadPlayers();
+    await loadPlayerSuggestions();
 }
 
 async function add() {
@@ -790,6 +891,7 @@ async function addPlayerFast() {
     showFeedback(data.message || "Player added.", "success");
     playerNameInput.value = "";
     await loadPlayers();
+    await loadPlayerSuggestions();
 }
 
 async function deletePlayer(playerId) {
@@ -810,6 +912,7 @@ async function deletePlayer(playerId) {
 
     showFeedback(data.message || "Player deleted.", "success");
     await loadPlayers();
+    await loadPlayerSuggestions();
 }
 
 async function markPlayerAttendance(playerId, status) {
@@ -885,3 +988,6 @@ if (attendanceList) {
 if (playerList) {
     loadPlayers();
 }
+
+setupPlayerAutocomplete();
+loadPlayerSuggestions();
