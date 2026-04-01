@@ -7,6 +7,10 @@ const lateDeadlineStatus = document.getElementById("late-deadline-status");
 const replayVideo = document.getElementById("replay-video");
 const replayStatus = document.getElementById("replay-status");
 const trackingOverlay = document.getElementById("tracking-overlay");
+const upgradeCodeInput = document.getElementById("upgrade-code");
+const playerNameInput = document.getElementById("player-name");
+const playerList = document.getElementById("player-list");
+const bulkPresentNamesInput = document.getElementById("bulk-present-names");
 
 let cameraStream = null;
 let mediaRecorder = null;
@@ -28,6 +32,7 @@ const TRACKING_COLOR = {
 };
 const TRACKING_FRAME_INTERVAL = 80;
 const MAX_TRAIL_POINTS = 25;
+let replayAllowedCache = null;
 
 function showFeedback(message, type = "success") {
     if (!feedback) {
@@ -36,6 +41,15 @@ function showFeedback(message, type = "success") {
 
     feedback.textContent = message;
     feedback.className = `feedback is-${type}`;
+}
+
+function escapeHtml(value) {
+    return String(value)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
 }
 
 function renderAttendance(records) {
@@ -372,6 +386,10 @@ function getSupportedMimeType() {
 }
 
 async function startCamera() {
+    if (!(await ensureReplayAllowed())) {
+        return;
+    }
+
     if (!replayVideo) {
         return;
     }
@@ -409,6 +427,10 @@ async function startCamera() {
 }
 
 async function startRecording() {
+    if (!(await ensureReplayAllowed())) {
+        return;
+    }
+
     if (!window.MediaRecorder) {
         showFeedback("This browser does not support video recording.", "error");
         updateReplayStatus("Recording unsupported");
@@ -469,6 +491,10 @@ function stopRecording() {
 }
 
 async function replayLastClip() {
+    if (!(await ensureReplayAllowed())) {
+        return;
+    }
+
     if (!replayVideo) {
         return;
     }
@@ -501,6 +527,25 @@ async function replayLastClip() {
         console.error(error);
         showFeedback("Replay could not start automatically. Use the video controls to play it.", "warning");
     }
+}
+
+async function ensureReplayAllowed() {
+    if (replayAllowedCache === true) {
+        return true;
+    }
+
+    const res = await fetch("/replay/access");
+    const data = await res.json();
+
+    if (!res.ok || data.ok === false) {
+        replayAllowedCache = false;
+        updateReplayStatus("Replay locked");
+        showFeedback(data.message || "Replay available only in Pro plan.", "warning");
+        return false;
+    }
+
+    replayAllowedCache = true;
+    return true;
 }
 
 if (replayVideo) {
@@ -585,6 +630,39 @@ async function mark() {
     await loadAttendance();
 }
 
+async function markPresentBulk() {
+    if (!bulkPresentNamesInput) {
+        return;
+    }
+
+    const players = bulkPresentNamesInput.value.trim();
+    if (!players) {
+        showFeedback("Enter player names separated by commas.", "warning");
+        bulkPresentNamesInput.focus();
+        return;
+    }
+
+    const body = new URLSearchParams();
+    body.append("players", players);
+
+    const res = await fetch("/mark_present_bulk", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: body.toString()
+    });
+    const data = await res.json();
+
+    if (!res.ok) {
+        showFeedback(data.message || "Could not mark bulk attendance.", "error");
+        return;
+    }
+
+    showFeedback(data.message || "Bulk attendance marked.", "success");
+    bulkPresentNamesInput.value = "";
+    await loadAttendance();
+    await loadPlayers();
+}
+
 async function add() {
     const queueInput = document.getElementById("qname");
     const name = queueInput.value.trim();
@@ -617,6 +695,141 @@ async function next() {
         data.player ? `${data.player} is now up.` : "The queue is empty right now.",
         data.player ? "success" : "warning"
     );
+}
+
+function renderPlayers(players) {
+    if (!playerList) {
+        return;
+    }
+
+    if (!players.length) {
+        playerList.innerHTML = `<p class="status-value">No players added yet.</p>`;
+        return;
+    }
+
+    playerList.innerHTML = players.map((player) => `
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.08);">
+            <span class="status-value">${escapeHtml(player.name)}</span>
+            <div class="button-row" style="margin:0;">
+                <button class="secondary-btn" onclick="markPlayerAttendance(${player.id}, 'present')">Present</button>
+                <button class="secondary-btn" onclick="markPlayerAttendance(${player.id}, 'late')">Late</button>
+                <button class="danger-btn" onclick="deletePlayer(${player.id})">Delete</button>
+            </div>
+        </div>
+    `).join("");
+}
+
+async function loadPlayers() {
+    if (!playerList) {
+        return;
+    }
+
+    const res = await fetch("/players");
+    const data = await res.json();
+    renderPlayers(data.players || []);
+}
+
+async function unlockPro() {
+    if (!upgradeCodeInput) {
+        return;
+    }
+
+    const code = upgradeCodeInput.value.trim();
+    if (!code) {
+        showFeedback("Enter an upgrade code.", "warning");
+        upgradeCodeInput.focus();
+        return;
+    }
+
+    const body = new URLSearchParams();
+    body.append("code", code);
+
+    const res = await fetch("/upgrade", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: body.toString()
+    });
+    const data = await res.json();
+
+    if (!res.ok) {
+        showFeedback(data.message || "Upgrade failed.", "error");
+        return;
+    }
+
+    showFeedback(data.message || "Upgrade successful.", "success");
+    upgradeCodeInput.value = "";
+}
+
+async function addPlayerFast() {
+    if (!playerNameInput) {
+        return;
+    }
+
+    const name = playerNameInput.value.trim();
+    if (!name) {
+        showFeedback("Enter a player name.", "warning");
+        playerNameInput.focus();
+        return;
+    }
+
+    const body = new URLSearchParams();
+    body.append("name", name);
+
+    const res = await fetch("/add_player", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: body.toString()
+    });
+    const data = await res.json();
+
+    if (!res.ok) {
+        showFeedback(data.message || "Could not add player.", "error");
+        return;
+    }
+
+    showFeedback(data.message || "Player added.", "success");
+    playerNameInput.value = "";
+    await loadPlayers();
+}
+
+async function deletePlayer(playerId) {
+    const body = new URLSearchParams();
+    body.append("id", String(playerId));
+
+    const res = await fetch("/delete_player", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: body.toString()
+    });
+    const data = await res.json();
+
+    if (!res.ok) {
+        showFeedback(data.message || "Could not delete player.", "error");
+        return;
+    }
+
+    showFeedback(data.message || "Player deleted.", "success");
+    await loadPlayers();
+}
+
+async function markPlayerAttendance(playerId, status) {
+    const body = new URLSearchParams();
+    body.append("player_id", String(playerId));
+    body.append("status", status);
+
+    const res = await fetch("/mark_attendance", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: body.toString()
+    });
+    const data = await res.json();
+
+    if (!res.ok) {
+        showFeedback(data.message || "Attendance mark failed.", "error");
+        return;
+    }
+
+    showFeedback(data.message || "Attendance marked.", "success");
 }
 
 let interval;
@@ -667,4 +880,8 @@ function updateTimerDisplay(totalSeconds) {
 
 if (attendanceList) {
     loadAttendance();
+}
+
+if (playerList) {
+    loadPlayers();
 }

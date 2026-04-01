@@ -44,6 +44,7 @@
                     <p>
                         Every check-in is saved with the day, IST time, and whether the player arrived after {{ settings.late_deadline_label }}.
                     </p>
+                    <p class="hero-panel-label" style="margin-top: 10px;">Current plan: {{ club_plan|upper }}</p>
                 </div>
             </section>
 
@@ -60,6 +61,18 @@
                     </label>
 
                     <button class="primary-btn" onclick="mark()">Mark Present</button>
+
+                    <label class="field" style="margin-top: 14px;">
+                        <span>Bulk present list</span>
+                        <textarea
+                            id="bulk-present-names"
+                            rows="3"
+                            placeholder="Enter player names (comma separated)"
+                            style="width: 100%; border: none; border-radius: 12px; padding: 12px 14px; background: rgba(18, 30, 40, 0.08); color: inherit; font: inherit; resize: vertical;"
+                        ></textarea>
+                    </label>
+
+                    <button class="secondary-btn" onclick="markPresentBulk()">Mark Present</button>
                 </article>
 
                 <article class="card">
@@ -163,6 +176,41 @@
                     <div class="status-box">
                         <p class="status-label">Replay status</p>
                         <p id="replay-status" class="status-value">Camera is off</p>
+                    </div>
+                </article>
+
+                <article class="card">
+                    <div class="card-head">
+                        <p class="card-kicker">Club Upgrade</p>
+                        <h2>Unlock Pro</h2>
+                    </div>
+
+                    <label class="field">
+                        <span>Upgrade code</span>
+                        <input id="upgrade-code" placeholder="Enter secret code">
+                    </label>
+
+                    <button class="primary-btn" onclick="unlockPro()">Unlock Pro</button>
+                </article>
+
+                <article class="card">
+                    <div class="card-head">
+                        <p class="card-kicker">Players</p>
+                        <h2>Add and manage players</h2>
+                    </div>
+
+                    <label class="field">
+                        <span>Player name</span>
+                        <input id="player-name" placeholder="Enter player name">
+                    </label>
+
+                    <div class="button-row">
+                        <button class="primary-btn" onclick="addPlayerFast()">Add</button>
+                        <button class="secondary-btn" onclick="loadPlayers()">Refresh</button>
+                    </div>
+
+                    <div id="player-list" class="status-box">
+                        <p class="status-value">No players added yet.</p>
                     </div>
                 </article>
             </section>

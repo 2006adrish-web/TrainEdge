@@ -1,5 +1,6 @@
 import os
 import sqlite3
+from datetime import date
 
 from flask import Flask, flash, jsonify, redirect, render_template, request, session, url_for
 from werkzeug.security import check_password_hash, generate_password_hash
@@ -27,6 +28,38 @@ def get_current_club_id():
         club_id = 1
     print("Current club:", club_id)
     return club_id
+
+
+def get_plan_limits(plan):
+    if plan == "free":
+        return {
+            "max_players": 15,
+            "replay": False,
+        }
+    elif plan == "pro":
+        return {
+            "max_players": 50,
+            "replay": True,
+        }
+    else:
+        return {
+            "max_players": 9999,
+            "replay": True,
+        }
+
+
+def get_club_plan(club_id):
+    conn = get_db()
+    try:
+        club = conn.execute(
+            "SELECT plan FROM clubs WHERE id = ?",
+            (club_id,),
+        ).fetchone()
+    finally:
+        conn.close()
+    plan = (club["plan"] if club and club["plan"] else "free").lower()
+    print("PLAN:", plan)
+    return plan
 
 
 def init_db():
@@ -105,6 +138,9 @@ def init_db():
             )
             """
         )
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_players_club_id ON players (club_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_attendance_club_id ON attendance (club_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_attendance_player_id ON attendance (player_id)")
         ensure_club_column(conn, "users")
         ensure_club_column(conn, "players")
         ensure_club_column(conn, "attendance")
@@ -116,10 +152,20 @@ def init_db():
 
 def render_dashboard():
     club_id = get_current_club_id()
+    conn = get_db()
+    try:
+        club = conn.execute(
+            "SELECT id, name, plan FROM clubs WHERE id = ?",
+            (club_id,),
+        ).fetchone()
+    finally:
+        conn.close()
+
     return render_template(
         "index.html",
         attendance=logic.get_attendance(club_id),
         settings=logic.get_settings(club_id),
+        club_plan=(club["plan"] if club else "free"),
     )
 
 
@@ -290,6 +336,283 @@ def queue():
 def next_p():
     club_id = get_current_club_id()
     return jsonify({"player": logic.next_player(club_id)})
+
+
+@app.route("/players")
+def players():
+    if "user_id" not in session:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    club_id = get_current_club_id()
+    conn = get_db()
+    try:
+        rows = conn.execute(
+            "SELECT id, name FROM players WHERE club_id = ? ORDER BY id DESC",
+            (club_id,),
+        ).fetchall()
+    finally:
+        conn.close()
+    return jsonify({"players": [dict(row) for row in rows]})
+
+
+@app.route("/upgrade", methods=["POST"])
+def upgrade():
+    if "user_id" not in session:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    club_id = get_current_club_id()
+    code = request.form.get("code", "").strip().lower()
+    if not code and request.is_json:
+        code = (request.json or {}).get("code", "").strip().lower()
+
+    if code != "alumonisgreat":
+        return jsonify({"ok": False, "message": "Invalid upgrade code."}), 400
+
+    conn = get_db()
+    try:
+        conn.execute(
+            "UPDATE clubs SET plan = 'pro' WHERE id = ?",
+            (club_id,),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    return jsonify({"ok": True, "message": "Upgrade successful. Your club is now on PRO."})
+
+
+@app.route("/add_player", methods=["POST"])
+def add_player():
+    if "user_id" not in session:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    club_id = get_current_club_id()
+    plan = get_club_plan(club_id)
+    limits = get_plan_limits(plan)
+    name = request.form.get("name", "").strip()
+    if not name and request.is_json:
+        name = (request.json or {}).get("name", "").strip()
+
+    if not name:
+        return jsonify({"ok": False, "message": "Player name is required."}), 400
+
+    conn = get_db()
+    try:
+        player_count = conn.execute(
+            "SELECT COUNT(*) FROM players WHERE club_id = ?",
+            (club_id,),
+        ).fetchone()[0]
+        if player_count >= limits["max_players"]:
+            return jsonify(
+                {
+                    "ok": False,
+                    "message": "Upgrade to Pro to add more players.",
+                    "plan": plan,
+                    "max_players": limits["max_players"],
+                }
+            ), 403
+
+        cursor = conn.execute(
+            "INSERT INTO players (name, club_id) VALUES (?, ?)",
+            (name, club_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    return jsonify({"ok": True, "message": f"{name} added.", "player_id": cursor.lastrowid})
+
+
+@app.route("/delete_player", methods=["POST"])
+def delete_player():
+    if "user_id" not in session:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    club_id = get_current_club_id()
+    raw_player_id = request.form.get("id", "").strip()
+    if not raw_player_id and request.is_json:
+        raw_player_id = str((request.json or {}).get("id", "")).strip()
+
+    try:
+        player_id = int(raw_player_id)
+    except (TypeError, ValueError):
+        return jsonify({"ok": False, "message": "Invalid player id."}), 400
+
+    conn = get_db()
+    try:
+        result = conn.execute(
+            "DELETE FROM players WHERE id = ? AND club_id = ?",
+            (player_id, club_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    if result.rowcount == 0:
+        return jsonify({"ok": False, "message": "Player not found for this club."}), 404
+    return jsonify({"ok": True, "message": "Player deleted."})
+
+
+@app.route("/mark_attendance", methods=["POST"])
+def mark_attendance():
+    if "user_id" not in session:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    club_id = get_current_club_id()
+    raw_player_id = request.form.get("player_id", "").strip()
+    status = request.form.get("status", "").strip().lower()
+
+    if request.is_json:
+        payload = request.json or {}
+        if not raw_player_id:
+            raw_player_id = str(payload.get("player_id", "")).strip()
+        if not status:
+            status = str(payload.get("status", "")).strip().lower()
+
+    try:
+        player_id = int(raw_player_id)
+    except (TypeError, ValueError):
+        return jsonify({"ok": False, "message": "Invalid player id."}), 400
+
+    if status not in {"present", "late"}:
+        return jsonify({"ok": False, "message": "Status must be 'present' or 'late'."}), 400
+
+    conn = get_db()
+    try:
+        player = conn.execute(
+            "SELECT id FROM players WHERE id = ? AND club_id = ?",
+            (player_id, club_id),
+        ).fetchone()
+        if not player:
+            return jsonify({"ok": False, "message": "Player not found for this club."}), 404
+
+        conn.execute(
+            """
+            INSERT INTO attendance (player_id, date, status, club_id)
+            VALUES (?, ?, ?, ?)
+            """,
+            (player_id, date.today().isoformat(), status, club_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    return jsonify({"ok": True, "message": f"Attendance marked: {status}."})
+
+
+@app.route("/mark_present_bulk", methods=["POST"])
+def mark_present_bulk():
+    if "user_id" not in session:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    club_id = get_current_club_id()
+    plan = get_club_plan(club_id)
+    limits = get_plan_limits(plan)
+    today = date.today().isoformat()
+
+    names_input = request.form.get("players", "")
+    if not names_input and request.is_json:
+        names_input = str((request.json or {}).get("players", ""))
+
+    names = [name.strip() for name in names_input.split(",") if name.strip()]
+    if not names:
+        return jsonify({"ok": False, "message": "Enter at least one player name."}), 400
+
+    # Prevent duplicate names in a single bulk request (case-insensitive)
+    unique_names = []
+    seen = set()
+    for raw_name in names:
+        key = raw_name.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        unique_names.append(raw_name)
+
+    conn = get_db()
+    try:
+        existing_player_count = conn.execute(
+            "SELECT COUNT(*) FROM players WHERE club_id = ?",
+            (club_id,),
+        ).fetchone()[0]
+
+        created_count = 0
+        marked_count = 0
+        skipped_count = 0
+        blocked_by_limit = 0
+
+        for name in unique_names:
+            player = conn.execute(
+                "SELECT id FROM players WHERE lower(name) = lower(?) AND club_id = ?",
+                (name, club_id),
+            ).fetchone()
+
+            if player:
+                player_id = player["id"]
+            else:
+                if existing_player_count >= limits["max_players"]:
+                    blocked_by_limit += 1
+                    continue
+                cursor = conn.execute(
+                    "INSERT INTO players (name, club_id) VALUES (?, ?)",
+                    (name, club_id),
+                )
+                player_id = cursor.lastrowid
+                existing_player_count += 1
+                created_count += 1
+
+            already_marked = conn.execute(
+                """
+                SELECT id
+                FROM attendance
+                WHERE player_id = ? AND date = ? AND club_id = ?
+                """,
+                (player_id, today, club_id),
+            ).fetchone()
+            if already_marked:
+                skipped_count += 1
+                continue
+
+            conn.execute(
+                """
+                INSERT INTO attendance (player_id, date, status, club_id)
+                VALUES (?, ?, 'present', ?)
+                """,
+                (player_id, today, club_id),
+            )
+            marked_count += 1
+
+        conn.commit()
+    finally:
+        conn.close()
+
+    message = f"Attendance marked for {marked_count} players"
+    if skipped_count:
+        message += f" ({skipped_count} already marked today)"
+    if blocked_by_limit:
+        message += f". {blocked_by_limit} not added due to plan limit"
+
+    return jsonify(
+        {
+            "ok": True,
+            "message": message,
+            "marked": marked_count,
+            "created": created_count,
+            "skipped": skipped_count,
+            "blocked": blocked_by_limit,
+        }
+    )
+
+
+@app.route("/replay/access")
+def replay_access():
+    if "user_id" not in session:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    club_id = get_current_club_id()
+    plan = get_club_plan(club_id)
+    limits = get_plan_limits(plan)
+
+    if not limits["replay"]:
+        return jsonify({"ok": False, "message": "Replay available only in Pro plan."}), 403
+    return jsonify({"ok": True, "plan": plan})
 
 
 init_db()
