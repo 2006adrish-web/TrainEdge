@@ -16,17 +16,79 @@ DAY_NAMES = {
 }
 
 
+def default_club_data():
+    return {"attendance": [], "queue": [], "settings": {}}
+
+
+def default_data():
+    return {"clubs": {"1": default_club_data()}}
+
+
+def normalize_data(data):
+    if not isinstance(data, dict):
+        return default_data(), True
+
+    clubs = data.get("clubs")
+    if isinstance(clubs, dict):
+        normalized_clubs = {}
+        for club_key, club_data in clubs.items():
+            if not isinstance(club_data, dict):
+                club_data = {}
+            normalized_clubs[str(club_key)] = {
+                "attendance": club_data.get("attendance", []),
+                "queue": club_data.get("queue", []),
+                "settings": club_data.get("settings", {}),
+            }
+        if not normalized_clubs:
+            normalized_clubs["1"] = default_club_data()
+        return {"clubs": normalized_clubs}, False
+
+    # Legacy shape migration: global attendance/queue/settings -> club_id 1
+    migrated = {
+        "clubs": {
+            "1": {
+                "attendance": data.get("attendance", []),
+                "queue": data.get("queue", []),
+                "settings": data.get("settings", {}),
+            }
+        }
+    }
+    return migrated, True
+
+
+def club_key(club_id):
+    try:
+        normalized = int(club_id)
+        if normalized <= 0:
+            return "1"
+        return str(normalized)
+    except (TypeError, ValueError):
+        return "1"
+
+
+def get_club_data(data, club_id):
+    key = club_key(club_id)
+    clubs = data.setdefault("clubs", {})
+    if key not in clubs or not isinstance(clubs.get(key), dict):
+        clubs[key] = default_club_data()
+    club_data = clubs[key]
+    club_data.setdefault("attendance", [])
+    club_data.setdefault("queue", [])
+    club_data.setdefault("settings", {})
+    return club_data
+
+
 def load():
     try:
         with open(FILE, "r") as f:
             data = json.load(f)
     except Exception:
-        data = {"attendance": [], "queue": []}
+        data = default_data()
 
-    data.setdefault("attendance", [])
-    data.setdefault("queue", [])
-    data.setdefault("settings", {})
-    return data
+    normalized, migrated = normalize_data(data)
+    if migrated:
+        save(normalized)
+    return normalized
 
 
 def save(data):
@@ -49,9 +111,10 @@ def format_deadline(deadline_value):
     return deadline.strftime("%I:%M %p").lstrip("0")
 
 
-def get_settings():
+def get_settings(club_id=1):
     data = load()
-    deadline = data["settings"].get("late_deadline", DEFAULT_LATE_DEADLINE)
+    club_data = get_club_data(data, club_id)
+    deadline = club_data["settings"].get("late_deadline", DEFAULT_LATE_DEADLINE)
     parsed_deadline = parse_deadline(deadline)
     normalized_deadline = parsed_deadline.strftime("%H:%M")
     return {
@@ -61,13 +124,14 @@ def get_settings():
     }
 
 
-def update_late_deadline(deadline_value):
+def update_late_deadline(deadline_value, club_id=1):
     parsed_deadline = parse_deadline(deadline_value)
     normalized_deadline = parsed_deadline.strftime("%H:%M")
     data = load()
-    data["settings"]["late_deadline"] = normalized_deadline
+    club_data = get_club_data(data, club_id)
+    club_data["settings"]["late_deadline"] = normalized_deadline
     save(data)
-    return get_settings()
+    return get_settings(club_id)
 
 
 def get_late_status(now, deadline_value):
@@ -87,9 +151,10 @@ def normalize_record(record):
     }
 
 
-def mark_attendance(name):
+def mark_attendance(name, club_id=1):
     data = load()
-    deadline_value = data["settings"].get("late_deadline", DEFAULT_LATE_DEADLINE)
+    club_data = get_club_data(data, club_id)
+    deadline_value = club_data["settings"].get("late_deadline", DEFAULT_LATE_DEADLINE)
     now = datetime.now(IST)
     late, cutoff_label = get_late_status(now, deadline_value)
 
@@ -102,35 +167,39 @@ def mark_attendance(name):
         "cutoff": cutoff_label,
     }
 
-    data["attendance"].append(record)
+    club_data["attendance"].append(record)
     save(data)
     return record
 
 
-def get_attendance():
+def get_attendance(club_id=1):
     data = load()
-    return [normalize_record(record) for record in reversed(data["attendance"])]
+    club_data = get_club_data(data, club_id)
+    return [normalize_record(record) for record in reversed(club_data["attendance"])]
 
 
-def clear_attendance():
+def clear_attendance(club_id=1):
     data = load()
-    cleared_count = len(data["attendance"])
-    data["attendance"] = []
+    club_data = get_club_data(data, club_id)
+    cleared_count = len(club_data["attendance"])
+    club_data["attendance"] = []
     save(data)
     return cleared_count
 
 
-def add_queue(name):
+def add_queue(name, club_id=1):
     data = load()
-    data["queue"].append(name)
+    club_data = get_club_data(data, club_id)
+    club_data["queue"].append(name)
     save(data)
-    return data["queue"]
+    return club_data["queue"]
 
 
-def next_player():
+def next_player(club_id=1):
     data = load()
-    if data["queue"]:
-        player = data["queue"].pop(0)
+    club_data = get_club_data(data, club_id)
+    if club_data["queue"]:
+        player = club_data["queue"].pop(0)
         save(data)
         return player
     return None

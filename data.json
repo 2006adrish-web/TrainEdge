@@ -1,5 +1,18 @@
 {
-  "attendance": [],
-  "queue": [],
-  "settings": {}
+  "clubs": {
+    "1": {
+      "attendance": [
+        {
+          "name": "Adrish Sengupta",
+          "day": "Wednesday",
+          "time": "07:58",
+          "late": false,
+          "status": "On time",
+          "cutoff": "3:00 PM"
+        }
+      ],
+      "queue": [],
+      "settings": {}
+    }
+  }
 }

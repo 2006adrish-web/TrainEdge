@@ -17,7 +17,37 @@ def get_db():
     return conn
 
 
+def get_current_club_id():
+    club_id = session.get("club_id", 1)
+    try:
+        club_id = int(club_id)
+        if club_id <= 0:
+            club_id = 1
+    except (TypeError, ValueError):
+        club_id = 1
+    print("Current club:", club_id)
+    return club_id
+
+
 def init_db():
+    def table_exists(conn, table_name):
+        row = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?",
+            (table_name,),
+        ).fetchone()
+        return row is not None
+
+    def column_exists(conn, table_name, column_name):
+        columns = conn.execute(f"PRAGMA table_info({table_name})").fetchall()
+        return any(column["name"] == column_name for column in columns)
+
+    def ensure_club_column(conn, table_name):
+        if not table_exists(conn, table_name):
+            return
+        if not column_exists(conn, table_name, "club_id"):
+            conn.execute(f"ALTER TABLE {table_name} ADD COLUMN club_id INTEGER DEFAULT 1")
+        conn.execute(f"UPDATE {table_name} SET club_id = 1 WHERE club_id IS NULL")
+
     conn = get_db()
     try:
         conn.execute(
@@ -41,16 +71,55 @@ def init_db():
             )
             """
         )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS players (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                club_id INTEGER NOT NULL DEFAULT 1,
+                FOREIGN KEY (club_id) REFERENCES clubs (id)
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS attendance (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                player_id INTEGER,
+                date TEXT,
+                status TEXT,
+                club_id INTEGER NOT NULL DEFAULT 1,
+                FOREIGN KEY (player_id) REFERENCES players (id),
+                FOREIGN KEY (club_id) REFERENCES clubs (id)
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS sessions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                club_id INTEGER NOT NULL DEFAULT 1,
+                start_time TEXT,
+                end_time TEXT,
+                FOREIGN KEY (club_id) REFERENCES clubs (id)
+            )
+            """
+        )
+        ensure_club_column(conn, "users")
+        ensure_club_column(conn, "players")
+        ensure_club_column(conn, "attendance")
+        ensure_club_column(conn, "sessions")
         conn.commit()
     finally:
         conn.close()
 
 
 def render_dashboard():
+    club_id = get_current_club_id()
     return render_template(
         "index.html",
-        attendance=logic.get_attendance(),
-        settings=logic.get_settings(),
+        attendance=logic.get_attendance(club_id),
+        settings=logic.get_settings(club_id),
     )
 
 
@@ -179,41 +248,48 @@ def logout():
 
 @app.route("/attendance", methods=["POST"])
 def attendance():
+    club_id = get_current_club_id()
     name = request.json["name"]
-    return jsonify(logic.mark_attendance(name))
+    return jsonify(logic.mark_attendance(name, club_id))
 
 
 @app.route("/settings")
 def get_settings():
-    return jsonify(logic.get_settings())
+    club_id = get_current_club_id()
+    return jsonify(logic.get_settings(club_id))
 
 
 @app.route("/settings/late-deadline", methods=["POST"])
 def update_late_deadline():
+    club_id = get_current_club_id()
     deadline = request.json["late_deadline"]
-    return jsonify(logic.update_late_deadline(deadline))
+    return jsonify(logic.update_late_deadline(deadline, club_id))
 
 
 @app.route("/attendance-list")
 def attendance_list():
-    return jsonify({"attendance": logic.get_attendance()})
+    club_id = get_current_club_id()
+    return jsonify({"attendance": logic.get_attendance(club_id)})
 
 
 @app.route("/attendance/clear", methods=["POST"])
 def clear_attendance():
-    cleared_count = logic.clear_attendance()
+    club_id = get_current_club_id()
+    cleared_count = logic.clear_attendance(club_id)
     return jsonify({"cleared": cleared_count})
 
 
 @app.route("/queue", methods=["POST"])
 def queue():
+    club_id = get_current_club_id()
     name = request.json["name"]
-    return jsonify(logic.add_queue(name))
+    return jsonify(logic.add_queue(name, club_id))
 
 
 @app.route("/next")
 def next_p():
-    return jsonify({"player": logic.next_player()})
+    club_id = get_current_club_id()
+    return jsonify({"player": logic.next_player(club_id)})
 
 
 init_db()
