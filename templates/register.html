@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TrainEdge | Register</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="page-shell">
+        <div class="bg-orb bg-orb-left"></div>
+        <div class="bg-orb bg-orb-right"></div>
+
+        <main class="dashboard">
+            <header class="topbar">
+                <div class="brand-lockup">
+                    <p class="eyebrow">TrainEdge Access</p>
+                    <h1>Create your club account</h1>
+                </div>
+                <nav class="nav-links">
+                    <a href="/" class="nav-link">Dashboard</a>
+                    <a href="/pricing" class="nav-link">Pricing</a>
+                    <a href="/about" class="nav-link">About</a>
+                    {% if is_logged_in %}
+                        <a href="/logout" class="nav-link">Logout</a>
+                    {% else %}
+                        <a href="/login" class="nav-link">Login</a>
+                    {% endif %}
+                </nav>
+            </header>
+
+            <section class="hero">
+                <div class="hero-copy">
+                    <p class="eyebrow">Registration</p>
+                    <h2 class="hero-title">Set up a TrainEdge club workspace with the same fast session flow.</h2>
+                    <p class="hero-text">
+                        This adds account access on top of the current app so you can grow toward a multi-user setup without disturbing day-to-day coaching tools.
+                    </p>
+                </div>
+
+                <article class="card">
+                    <div class="card-head">
+                        <p class="card-kicker">Register</p>
+                        <h2>Start with one coach and one club</h2>
+                    </div>
+
+                    {% with messages = get_flashed_messages(with_categories=true) %}
+                        {% if messages %}
+                            {% for category, message in messages %}
+                                <p class="feedback {% if category == 'success' %}is-success{% else %}is-error{% endif %}">{{ message }}</p>
+                            {% endfor %}
+                        {% endif %}
+                    {% endwith %}
+
+                    <form method="post">
+                        <label class="field">
+                            <span>Club name</span>
+                            <input type="text" name="club_name" placeholder="Enter academy or club name" required>
+                        </label>
+
+                        <label class="field">
+                            <span>Email</span>
+                            <input type="email" name="email" placeholder="coach@club.com" required>
+                        </label>
+
+                        <label class="field">
+                            <span>Password</span>
+                            <input type="password" name="password" placeholder="Create a secure password" required>
+                        </label>
+
+                        <label class="field">
+                            <span>Role</span>
+                            <input type="text" name="role" placeholder="coach" value="coach">
+                        </label>
+
+                        <button type="submit" class="primary-btn">Create Account</button>
+                    </form>
+
+                    <div class="status-box" style="margin-top: 18px;">
+                        <p class="status-label">Already registered?</p>
+                        <p class="status-value"><a href="/login">Log in instead</a></p>
+                    </div>
+                </article>
+            </section>
+        </main>
+    </div>
+</body>
+</html>

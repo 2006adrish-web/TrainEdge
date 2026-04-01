@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TrainEdge | Login</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="page-shell">
+        <div class="bg-orb bg-orb-left"></div>
+        <div class="bg-orb bg-orb-right"></div>
+
+        <main class="dashboard">
+            <header class="topbar">
+                <div class="brand-lockup">
+                    <p class="eyebrow">TrainEdge Access</p>
+                    <h1>Log in to continue</h1>
+                </div>
+                <nav class="nav-links">
+                    <a href="/" class="nav-link">Dashboard</a>
+                    <a href="/pricing" class="nav-link">Pricing</a>
+                    <a href="/about" class="nav-link">About</a>
+                    {% if is_logged_in %}
+                        <a href="/logout" class="nav-link">Logout</a>
+                    {% else %}
+                        <a href="/login" class="nav-link active">Login</a>
+                    {% endif %}
+                </nav>
+            </header>
+
+            <section class="hero">
+                <div class="hero-copy">
+                    <p class="eyebrow">Coach Sign In</p>
+                    <h2 class="hero-title">Pick up your session without slowing down the practice flow.</h2>
+                    <p class="hero-text">
+                        Use your TrainEdge account to access your protected dashboard while the existing session tools remain lightweight and ready.
+                    </p>
+                </div>
+
+                <article class="card">
+                    <div class="card-head">
+                        <p class="card-kicker">Login</p>
+                        <h2>Welcome back</h2>
+                    </div>
+
+                    {% with messages = get_flashed_messages(with_categories=true) %}
+                        {% if messages %}
+                            {% for category, message in messages %}
+                                <p class="feedback {% if category == 'success' %}is-success{% else %}is-error{% endif %}">{{ message }}</p>
+                            {% endfor %}
+                        {% endif %}
+                    {% endwith %}
+
+                    <form method="post">
+                        <label class="field">
+                            <span>Email</span>
+                            <input type="email" name="email" placeholder="coach@club.com" required>
+                        </label>
+
+                        <label class="field">
+                            <span>Password</span>
+                            <input type="password" name="password" placeholder="Enter your password" required>
+                        </label>
+
+                        <button type="submit" class="primary-btn">Log In</button>
+                    </form>
+
+                    <div class="status-box" style="margin-top: 18px;">
+                        <p class="status-label">New to TrainEdge?</p>
+                        <p class="status-value"><a href="/register">Create your club account</a></p>
+                    </div>
+                </article>
+            </section>
+        </main>
+    </div>
+</body>
+</html>

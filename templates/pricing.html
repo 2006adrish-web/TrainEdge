@@ -21,6 +21,11 @@
                     <a href="/" class="nav-link">Dashboard</a>
                     <a href="/pricing" class="nav-link active">Pricing</a>
                     <a href="/about" class="nav-link">About</a>
+                    {% if is_logged_in %}
+                        <a href="/logout" class="nav-link">Logout</a>
+                    {% else %}
+                        <a href="/login" class="nav-link">Login</a>
+                    {% endif %}
                 </nav>
             </header>
 
