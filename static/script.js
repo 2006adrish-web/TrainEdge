@@ -15,6 +15,7 @@ const attendanceNameInput = document.getElementById("name");
 const suggestionsBox = document.getElementById("suggestions");
 
 let playerNameSuggestions = [];
+let currentBatsmanName = "";
 
 let cameraStream = null;
 let mediaRecorder = null;
@@ -791,6 +792,7 @@ async function next() {
     if (currentPlayer) {
         currentPlayer.innerText = data.player ? `Now batting: ${data.player}` : "Queue empty";
     }
+    currentBatsmanName = data.player || "";
 
     showFeedback(
         data.player ? `${data.player} is now up.` : "The queue is empty right now.",
@@ -936,6 +938,82 @@ async function markPlayerAttendance(playerId, status) {
 }
 
 let interval;
+let alarmAudioContext = null;
+
+function getVisibleBatsmanName() {
+    if (!currentPlayer) {
+        return "";
+    }
+
+    const text = (currentPlayer.innerText || "").trim();
+    if (!text.toLowerCase().startsWith("now batting:")) {
+        return "";
+    }
+
+    return text.slice("Now batting:".length).trim();
+}
+
+function ensureAlarmAudioContext() {
+    if (alarmAudioContext) {
+        return alarmAudioContext;
+    }
+
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    if (!AudioCtx) {
+        return null;
+    }
+
+    alarmAudioContext = new AudioCtx();
+    return alarmAudioContext;
+}
+
+function playAlarmSound() {
+    const audioContext = ensureAlarmAudioContext();
+    if (!audioContext) {
+        return;
+    }
+
+    if (audioContext.state === "suspended") {
+        audioContext.resume().catch(() => {});
+    }
+
+    const now = audioContext.currentTime;
+    const beepDuration = 0.22;
+    const gap = 0.08;
+    const totalBeeps = 3;
+
+    for (let i = 0; i < totalBeeps; i += 1) {
+        const start = now + (beepDuration + gap) * i;
+        const oscillator = audioContext.createOscillator();
+        const gainNode = audioContext.createGain();
+
+        oscillator.type = "square";
+        oscillator.frequency.setValueAtTime(880, start);
+        gainNode.gain.setValueAtTime(0.0001, start);
+        gainNode.gain.exponentialRampToValueAtTime(0.25, start + 0.02);
+        gainNode.gain.exponentialRampToValueAtTime(0.0001, start + beepDuration);
+
+        oscillator.connect(gainNode);
+        gainNode.connect(audioContext.destination);
+        oscillator.start(start);
+        oscillator.stop(start + beepDuration);
+    }
+}
+
+function announceBattingOver(playerName) {
+    if (!("speechSynthesis" in window)) {
+        return;
+    }
+
+    const message = playerName
+        ? `Batting over for ${playerName}`
+        : "Time is over";
+    const utterance = new SpeechSynthesisUtterance(message);
+    utterance.rate = 1;
+    utterance.pitch = 1;
+    window.speechSynthesis.cancel();
+    window.speechSynthesis.speak(utterance);
+}
 
 function startTimer() {
     const timeInput = document.getElementById("time");
@@ -963,7 +1041,15 @@ function startTimer() {
         if (seconds < 0) {
             clearInterval(interval);
             timerDisplay.innerText = "00:00";
-            showFeedback("Time is up. Move to the next drill.", "warning");
+            const batsmanName = currentBatsmanName || getVisibleBatsmanName();
+            playAlarmSound();
+            announceBattingOver(batsmanName);
+            showFeedback(
+                batsmanName
+                    ? `Batting over for ${batsmanName}.`
+                    : "Time is up. Move to the next drill.",
+                "warning"
+            );
             return;
         }
 
