@@ -13,9 +13,11 @@ const playerList = document.getElementById("player-list");
 const bulkPresentNamesInput = document.getElementById("bulk-present-names");
 const attendanceNameInput = document.getElementById("name");
 const suggestionsBox = document.getElementById("suggestions");
+const installBtn = document.getElementById("installBtn");
 
 let playerNameSuggestions = [];
 let currentBatsmanName = "";
+let deferredInstallPrompt = null;
 
 let cameraStream = null;
 let mediaRecorder = null;
@@ -1067,6 +1069,67 @@ function updateTimerDisplay(totalSeconds) {
     timerDisplay.innerText = `${m}:${s < 10 ? "0" : ""}${s}`;
 }
 
+function hideInstallButton() {
+    if (!installBtn) {
+        return;
+    }
+
+    installBtn.style.display = "none";
+    installBtn.setAttribute("aria-hidden", "true");
+}
+
+function showInstallButton() {
+    if (!installBtn) {
+        return;
+    }
+
+    installBtn.style.display = "inline-flex";
+    installBtn.setAttribute("aria-hidden", "false");
+}
+
+function setupPwaInstallButton() {
+    const isServiceWorkerContext =
+        typeof ServiceWorkerGlobalScope !== "undefined" &&
+        typeof self !== "undefined" &&
+        self instanceof ServiceWorkerGlobalScope;
+
+    if (isServiceWorkerContext || !installBtn) {
+        return;
+    }
+
+    hideInstallButton();
+
+    installBtn.addEventListener("click", async () => {
+        if (!deferredInstallPrompt) {
+            console.log("PWA install prompt is not available.");
+            hideInstallButton();
+            return;
+        }
+
+        deferredInstallPrompt.prompt();
+
+        try {
+            const { outcome } = await deferredInstallPrompt.userChoice;
+            console.log(`PWA install prompt outcome: ${outcome}`);
+        } finally {
+            deferredInstallPrompt = null;
+            hideInstallButton();
+        }
+    });
+
+    window.addEventListener("beforeinstallprompt", (event) => {
+        event.preventDefault();
+        deferredInstallPrompt = event;
+        showInstallButton();
+    });
+
+    window.addEventListener("appinstalled", () => {
+        console.log("PWA install prompt outcome: accepted");
+        deferredInstallPrompt = null;
+        hideInstallButton();
+    });
+}
+
 if (attendanceList) {
     loadAttendance();
 }
@@ -1077,3 +1140,4 @@ if (playerList) {
 
 setupPlayerAutocomplete();
 loadPlayerSuggestions();
+setupPwaInstallButton();
